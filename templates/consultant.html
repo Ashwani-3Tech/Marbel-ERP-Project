@@ -136,6 +136,13 @@
                     </tbody>
                 </table>
             </div>
+            {% if wishlist_items %}
+            <div class="card-footer bg-light text-end py-3">
+                <a href="/checkout" target="_blank" class="btn btn-success btn-lg fw-bold px-5 shadow">
+                    📲 Complete Order & Send WhatsApp Quote
+                </a>
+            </div>
+            {% endif %}
         </div>
         {% else %}
         <div class="card shadow-sm border-0 mb-4 border-top border-info border-4">

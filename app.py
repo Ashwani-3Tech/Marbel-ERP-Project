@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, ses
 import sqlite3
 import qrcode
 import os
+import urllib.parse  # NEW: Used for formatting WhatsApp text!
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageDraw
 
@@ -131,15 +132,12 @@ def clear_customer():
     session.pop('active_customer_id', None)
     return redirect(url_for('consultant_panel'))
 
-# --- NEW: ADD TO WISHLIST ROUTE ---
 @app.route('/add_to_wishlist/<int:product_id>')
 def add_to_wishlist(product_id):
     if 'user_id' not in session or session.get('role') not in ['Super Admin', 'Consultant']: return redirect(url_for('login'))
     if 'active_customer_id' not in session: return redirect(url_for('consultant_panel'))
-    
     conn = get_db_connection()
-    conn.execute('INSERT INTO Wishlist (customer_id, product_id, quantity) VALUES (?, ?, 1)', 
-                 (session['active_customer_id'], product_id))
+    conn.execute('INSERT INTO Wishlist (customer_id, product_id, quantity) VALUES (?, ?, 1)', (session['active_customer_id'], product_id))
     conn.commit()
     conn.close()
     flash("Product added to Customer Wishlist!")
@@ -153,7 +151,49 @@ def remove_from_wishlist(wishlist_id):
     conn.commit()
     conn.close()
     return redirect(url_for('consultant_panel'))
-# ----------------------------------
+
+# --- NEW: CHECKOUT & WHATSAPP ENGINE ---
+@app.route('/checkout')
+def checkout():
+    if 'user_id' not in session or session.get('role') not in ['Super Admin', 'Consultant']: return redirect(url_for('login'))
+    if 'active_customer_id' not in session: return redirect(url_for('consultant_panel'))
+
+    conn = get_db_connection()
+    customer = conn.execute('SELECT * FROM Customers WHERE id = ?', (session['active_customer_id'],)).fetchone()
+    wishlist = conn.execute('''
+        SELECT p.name, p.price_per_sqft 
+        FROM Wishlist w JOIN Products p ON w.product_id = p.id 
+        WHERE w.customer_id = ?
+    ''', (session['active_customer_id'],)).fetchall()
+
+    if not wishlist:
+        conn.close()
+        flash("Cannot checkout an empty cart!")
+        return redirect(url_for('consultant_panel'))
+
+    # 1. Build the Automated Message
+    msg = f"Hello {customer['name']},\n\nHere is your requested quotation from our Premium Marble Collection:\n\n"
+    
+    for i, item in enumerate(wishlist, 1):
+        price = item['price_per_sqft']
+        if 'Green' in customer['commission_rate']: price = round(price * 0.9, 2)
+        elif 'Red' in customer['commission_rate']: price = round(price * 0.95, 2)
+        elif 'Yellow' in customer['commission_rate']: price = round(price * 0.8, 2)
+        msg += f"🔸 {item['name']}: ₹{price} / SqFt\n"
+
+    msg += "\nPlease let us know if you would like to proceed with this order!\n\nBest Regards,\nYour Consultant Team"
+
+    # 2. Clear the Cart (Officially Placing the Order)
+    conn.execute('DELETE FROM Wishlist WHERE customer_id = ?', (session['active_customer_id'],))
+    conn.commit()
+    conn.close()
+
+    # 3. Generate the secure WhatsApp link
+    encoded_msg = urllib.parse.quote(msg)
+    whatsapp_url = f"https://wa.me/91{customer['mobile']}?text={encoded_msg}"
+
+    return redirect(whatsapp_url)
+# ---------------------------------------
 
 @app.route('/consultant')
 def consultant_panel():
@@ -164,10 +204,8 @@ def consultant_panel():
     
     active_customer = None
     wishlist_items = []
-    
     if 'active_customer_id' in session:
         active_customer = conn.execute('SELECT * FROM Customers WHERE id = ?', (session['active_customer_id'],)).fetchone()
-        # Fetch the items currently in this customer's cart
         wishlist_items = conn.execute('''
             SELECT w.id as wishlist_id, p.name, p.price_per_sqft, p.image_path, p.category 
             FROM Wishlist w JOIN Products p ON w.product_id = p.id 
