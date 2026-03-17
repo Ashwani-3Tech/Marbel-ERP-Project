@@ -23,6 +23,26 @@
           {% endif %}
         {% endwith %}
 
+        {% if followups %}
+        <div class="alert alert-warning shadow-sm mb-4 border-start border-warning border-5">
+            <h5 class="fw-bold text-dark">🔔 Pending Follow-Ups</h5>
+            <div class="d-flex flex-wrap gap-2 mt-2">
+                {% for f in followups %}
+                <div class="card border-warning p-2 shadow-sm" style="min-width: 250px;">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>{{ f.name }}</strong><br>
+                            <small class="text-muted">📞 {{ f.mobile }}</small><br>
+                            <span class="badge bg-danger">{{ f.reminder_type }} {% if f.specific_date %}({{ f.specific_date }}){% endif %}</span>
+                        </div>
+                        <a href="/complete_followup/{{ f.id }}" class="btn btn-sm btn-success">✔ Done</a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
         <div class="accordion mb-4 shadow-sm" id="registerAccordion">
           <div class="accordion-item border-top border-success border-4">
             <h2 class="accordion-header">
@@ -104,7 +124,7 @@
                         <tr>
                             <th class="px-3">Item</th>
                             <th>Original Price</th>
-                            <th>Discounted Price (Per SqFt)</th>
+                            <th>Discounted Price</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -114,33 +134,22 @@
                             <td class="fw-bold px-3">{{ w.name }}</td>
                             <td class="text-muted text-decoration-line-through">₹{{ w.price_per_sqft }}</td>
                             <td class="text-success fw-bold fs-5">
-                                {% if 'Green' in active_customer.commission_rate %}
-                                    ₹{{ (w.price_per_sqft * 0.9)|round(2) }} 
-                                {% elif 'Red' in active_customer.commission_rate %}
-                                    ₹{{ (w.price_per_sqft * 0.95)|round(2) }}
-                                {% elif 'Yellow' in active_customer.commission_rate %}
-                                    ₹{{ (w.price_per_sqft * 0.8)|round(2) }}
-                                {% else %}
-                                    ₹{{ w.price_per_sqft }}
-                                {% endif %}
+                                {% if 'Green' in active_customer.commission_rate %} ₹{{ (w.price_per_sqft * 0.9)|round(2) }} 
+                                {% elif 'Red' in active_customer.commission_rate %} ₹{{ (w.price_per_sqft * 0.95)|round(2) }}
+                                {% elif 'Yellow' in active_customer.commission_rate %} ₹{{ (w.price_per_sqft * 0.8)|round(2) }}
+                                {% else %} ₹{{ w.price_per_sqft }} {% endif %}
                             </td>
-                            <td>
-                                <a href="/remove_from_wishlist/{{ w.wishlist_id }}" class="btn btn-sm btn-outline-danger">Remove</a>
-                            </td>
+                            <td><a href="/remove_from_wishlist/{{ w.wishlist_id }}" class="btn btn-sm btn-outline-danger">Remove</a></td>
                         </tr>
                         {% else %}
-                        <tr>
-                            <td colspan="4" class="text-center text-muted py-3">Wishlist is empty. Add products from the catalog below!</td>
-                        </tr>
+                        <tr><td colspan="4" class="text-center text-muted py-3">Wishlist is empty.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
             {% if wishlist_items %}
             <div class="card-footer bg-light text-end py-3">
-                <a href="/checkout" target="_blank" class="btn btn-success btn-lg fw-bold px-5 shadow">
-                    📲 Complete Order & Send WhatsApp Quote
-                </a>
+                <a href="/checkout" target="_blank" class="btn btn-success btn-lg fw-bold px-5 shadow">📲 Complete Order & Send WhatsApp Quote</a>
             </div>
             {% endif %}
         </div>
@@ -155,8 +164,7 @@
                         <tr>
                             <th class="px-3">Name</th>
                             <th>Contact</th>
-                            <th>Purpose</th>
-                            <th>Commission Tier</th>
+                            <th>Commission</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -165,12 +173,40 @@
                         <tr>
                             <td class="fw-bold px-3">{{ c.name }}</td>
                             <td>{{ c.mobile }}</td>
-                            <td>{{ c.purpose }}</td>
                             <td><span class="badge bg-dark text-white">{{ c.commission_rate }}</span></td>
                             <td>
-                                <a href="/select_customer/{{ c.id }}" class="btn btn-sm btn-outline-primary px-3 shadow-sm">Start Order / Select</a>
+                                <a href="/select_customer/{{ c.id }}" class="btn btn-sm btn-outline-primary px-2 shadow-sm">🛒 Start Order</a>
+                                <button class="btn btn-sm btn-outline-warning px-2 text-dark shadow-sm" data-bs-toggle="modal" data-bs-target="#reminderModal{{ c.id }}">🔔 Follow-Up</button>
                             </td>
                         </tr>
+
+                        <div class="modal fade" id="reminderModal{{ c.id }}" tabindex="-1">
+                          <div class="modal-dialog">
+                            <div class="modal-content border-top border-warning border-5">
+                              <div class="modal-header">
+                                <h5 class="modal-title">Set Reminder for {{ c.name }}</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                              </div>
+                              <form action="/set_followup" method="POST">
+                                  <div class="modal-body">
+                                    <input type="hidden" name="customer_id" value="{{ c.id }}">
+                                    <label class="form-label">When should we follow up?</label>
+                                    <select name="reminder_type" class="form-select mb-3" required>
+                                        <option value="Same Day (Evening)">Same Day (Evening)</option>
+                                        <option value="Next Day">Next Day</option>
+                                        <option value="Specific Date">Specific Date</option>
+                                    </select>
+                                    <label class="form-label text-muted small">If Specific Date, select here:</label>
+                                    <input type="date" name="specific_date" class="form-control">
+                                  </div>
+                                  <div class="modal-footer">
+                                    <button type="submit" class="btn btn-warning w-100 fw-bold">Save Reminder</button>
+                                  </div>
+                              </form>
+                            </div>
+                          </div>
+                        </div>
+
                         {% endfor %}
                     </tbody>
                 </table>
@@ -187,9 +223,8 @@
                     <tr>
                         <th class="px-3">Photo</th>
                         <th>Product Name</th>
-                        <th>Dimensions (LxHxWxT)</th>
+                        <th>Dimensions</th>
                         <th>Base Price</th>
-                        <th>Finish & Application</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -204,9 +239,8 @@
                             {% endif %}
                         </td>
                         <td class="fw-bold">{{ p.name }}<br><small class="text-muted fw-normal">{{ p.category }}</small></td>
-                        <td>{{ p.length }}x{{ p.height }}x{{ p.width }} ({{ p.thickness }}mm)</td>
+                        <td>{{ p.length }}x{{ p.height }}x{{ p.width }}</td>
                         <td class="text-primary fw-bold">₹{{ p.price_per_sqft }}</td>
-                        <td>{{ p.finish }}<br><small class="text-muted">{{ p.application }}</small></td>
                         <td>
                             {% if active_customer %}
                             <a href="/add_to_wishlist/{{ p.id }}" class="btn btn-sm btn-success px-3 shadow-sm">Add to Wishlist</a>
