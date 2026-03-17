@@ -21,6 +21,7 @@ def get_db_connection():
 
 def setup_database():
     conn = get_db_connection()
+    # 1. Products Table
     conn.execute('''
         CREATE TABLE IF NOT EXISTS Products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,6 +31,7 @@ def setup_database():
             description TEXT, image_path TEXT
         )
     ''')
+    # 2. Users Table
     conn.execute('''
         CREATE TABLE IF NOT EXISTS Users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,6 +39,17 @@ def setup_database():
             role TEXT NOT NULL, assigned_category TEXT
         )
     ''')
+    # 3. NEW Customers Table
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS Customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL, mobile TEXT NOT NULL, email TEXT,
+            purpose TEXT, ref_name TEXT, ref_mobile TEXT,
+            commission_rate TEXT, birthday TEXT, anniversary TEXT,
+            notes TEXT, consultant_username TEXT
+        )
+    ''')
+    
     admin = conn.execute('SELECT * FROM Users WHERE username = "admin"').fetchone()
     if not admin:
         conn.execute('INSERT INTO Users (username, password, role) VALUES (?, ?, ?)', 
@@ -51,31 +64,21 @@ def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        
         conn = get_db_connection()
         user = conn.execute('SELECT * FROM Users WHERE username = ? AND password = ?', (username, password)).fetchone()
         conn.close()
-        
         if user:
             session['user_id'] = user['id']
             session['role'] = user['role']
             session['username'] = user['username']
             session['assigned_category'] = user['assigned_category']
             
-            # --- THE NEW TRAFFIC CONTROLLER ---
-            if user['role'] == 'Super Admin':
-                return redirect(url_for('index'))
-            elif user['role'] == 'Consultant':
-                return redirect(url_for('consultant_panel'))
-            elif user['role'] == 'Customer':
-                return redirect(url_for('customer_panel'))
-            elif user['role'] == 'Assistant Admin':
-                return redirect(url_for('index')) # We will restrict their view later!
-            # ----------------------------------
-            
+            if user['role'] == 'Super Admin': return redirect(url_for('index'))
+            elif user['role'] == 'Consultant': return redirect(url_for('consultant_panel'))
+            elif user['role'] == 'Customer': return redirect(url_for('customer_panel'))
+            elif user['role'] == 'Assistant Admin': return redirect(url_for('index'))
         else:
             flash("Invalid credentials! Please try again.")
-            
     return render_template('login.html')
 
 @app.route('/logout')
@@ -85,14 +88,11 @@ def logout():
 
 @app.route('/')
 def index():
-    if 'user_id' not in session or session.get('role') != 'Super Admin':
-        return redirect(url_for('login'))
-
+    if 'user_id' not in session or session.get('role') != 'Super Admin': return redirect(url_for('login'))
     search_query = request.args.get('search', '')
     category_filter = request.args.get('category', '')
     query = "SELECT * FROM Products WHERE 1=1"
     params = []
-    
     if search_query:
         query += " AND (name LIKE ? OR application LIKE ? OR finish LIKE ?)"
         params.extend([f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"])
@@ -102,12 +102,10 @@ def index():
         
     conn = get_db_connection()
     products = conn.execute(query, params).fetchall()
-    users = conn.execute('SELECT * FROM Users').fetchall() # <-- FETCHES USERS FOR ADMIN!
+    users = conn.execute('SELECT * FROM Users').fetchall()
     conn.close()
-    
     return render_template('index.html', products=products, users=users)
 
-# --- USER MANAGEMENT ROUTES ---
 @app.route('/add_user', methods=['POST'])
 def add_user():
     if 'user_id' not in session or session.get('role') != 'Super Admin': return redirect(url_for('login'))
@@ -115,11 +113,9 @@ def add_user():
     password = request.form['password']
     role = request.form['role']
     category = request.form.get('assigned_category', '')
-
     conn = get_db_connection()
     try:
-        conn.execute('INSERT INTO Users (username, password, role, assigned_category) VALUES (?, ?, ?, ?)',
-                     (username, password, role, category))
+        conn.execute('INSERT INTO Users (username, password, role, assigned_category) VALUES (?, ?, ?, ?)', (username, password, role, category))
         conn.commit()
     except sqlite3.IntegrityError:
         flash("That Username already exists!")
@@ -134,7 +130,6 @@ def delete_user(id):
     conn.commit()
     conn.close()
     return redirect(url_for('index'))
-# ------------------------------
 
 @app.route('/add', methods=['POST'])
 def add_product():
@@ -145,23 +140,17 @@ def add_product():
     l, h, w, t = request.form['l'], request.form['h'], request.form['w'], request.form['t']
     app_use = request.form['application']
     finish = request.form['finish']
-
     file = request.files['image']
     filename = ""
     if file:
         filename = secure_filename(file.filename)
         file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO Products (name, category, length, height, width, thickness, price_per_sqft, application, finish, image_path)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (name, category, l, h, w, t, price, app_use, finish, filename))
+    cursor.execute('''INSERT INTO Products (name, category, length, height, width, thickness, price_per_sqft, application, finish, image_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (name, category, l, h, w, t, price, app_use, finish, filename))
     product_id = cursor.lastrowid
     conn.commit()
     conn.close()
-
     qr_data = f"ID: {product_id} | Name: {name} | Cat: {category}"
     qr_img = qrcode.make(qr_data).convert('RGB')
     qr_w, qr_h = qr_img.size
@@ -171,19 +160,42 @@ def add_product():
     draw.text((10, qr_h + 5), f"Name: {name}", fill="black")
     draw.text((10, qr_h + 25), f"Lot No: {product_id}  |  {category}", fill="black")
     sticker.save(f"{QR_FOLDER}/product_{product_id}.png")
-
     return redirect(url_for('index'))
+
+# --- NEW: REGISTER CUSTOMER ROUTE ---
+@app.route('/register_customer', methods=['POST'])
+def register_customer():
+    if 'user_id' not in session or session.get('role') not in ['Super Admin', 'Consultant']: return redirect(url_for('login'))
+    
+    name, mobile, email = request.form['name'], request.form['mobile'], request.form['email']
+    purpose = request.form['purpose']
+    ref_name, ref_mobile = request.form['ref_name'], request.form['ref_mobile']
+    commission_rate = request.form['commission_rate']
+    birthday, anniversary = request.form['birthday'], request.form['anniversary']
+    notes = request.form['notes']
+    consultant_username = session['username']
+    
+    conn = get_db_connection()
+    conn.execute('''
+        INSERT INTO Customers (name, mobile, email, purpose, ref_name, ref_mobile, commission_rate, birthday, anniversary, notes, consultant_username)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (name, mobile, email, purpose, ref_name, ref_mobile, commission_rate, birthday, anniversary, notes, consultant_username))
+    conn.commit()
+    conn.close()
+    
+    flash(f"Customer {name} Registered Successfully!")
+    return redirect(url_for('consultant_panel'))
+# ------------------------------------
 
 @app.route('/consultant')
 def consultant_panel():
-    # SECURITY LOCK: Only Consultants and Super Admins can enter!
-    if 'user_id' not in session or session.get('role') not in ['Super Admin', 'Consultant']:
-        return redirect(url_for('login'))
-        
+    if 'user_id' not in session or session.get('role') not in ['Super Admin', 'Consultant']: return redirect(url_for('login'))
     conn = get_db_connection()
     products = conn.execute('SELECT * FROM Products').fetchall()
+    # Fetch customers registered by this specific consultant
+    customers = conn.execute('SELECT * FROM Customers WHERE consultant_username = ?', (session['username'],)).fetchall()
     conn.close()
-    return render_template('consultant.html', products=products)
+    return render_template('consultant.html', products=products, customers=customers)
 
 @app.route('/customer')
 def customer_panel():
