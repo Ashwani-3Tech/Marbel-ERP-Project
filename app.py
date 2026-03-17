@@ -42,9 +42,27 @@ setup_database()
 
 @app.route('/')
 def index():
+    # Get the search words from the user
+    search_query = request.args.get('search', '')
+    category_filter = request.args.get('category', '')
+    
+    query = "SELECT * FROM Products WHERE 1=1"
+    params = []
+    
+    # Filter by Text (Name, Application, or Finish)
+    if search_query:
+        query += " AND (name LIKE ? OR application LIKE ? OR finish LIKE ?)"
+        params.extend([f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"])
+        
+    # Filter by Category Dropdown
+    if category_filter:
+        query += " AND category = ?"
+        params.append(category_filter)
+        
     conn = get_db_connection()
-    products = conn.execute('SELECT * FROM Products').fetchall()
+    products = conn.execute(query, params).fetchall()
     conn.close()
+    
     return render_template('index.html', products=products)
 
 @app.route('/add', methods=['POST'])
