@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Marble ERP - Super Admin Panel</title>
+    <title>Marble ERP - Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         .marble-card img { height: 200px; object-fit: cover; }
@@ -14,20 +14,30 @@
 
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="fw-bold">👑 Super Admin Dashboard</h1>
+        <h1 class="fw-bold">
+            {% if session['role'] == 'Super Admin' %}👑 Super Admin Dashboard
+            {% else %}🛡️ Instant Admin Panel
+            {% endif %}
+        </h1>
         <div>
-            <span class="badge bg-dark fs-6 shadow-sm me-3">Logged in as: Master Admin</span>
+            <span class="badge bg-dark fs-6 shadow-sm me-3">Logged in as: {{ session['username'] }} ({{ session['role'] }})</span>
             <a href="/logout" class="btn btn-danger">Logout</a>
         </div>
     </div>
 
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <div class="alert alert-danger py-2 fw-bold">{{ messages[0] }}</div>
+      {% endif %}
+    {% endwith %}
+
+    {% if session['role'] == 'Super Admin' %}
     <div class="row mb-4">
         <div class="col-md-4">
             <div class="card shadow-sm border-0 border-start border-success border-5 h-100">
                 <div class="card-body">
                     <h6 class="text-muted text-uppercase fw-bold mb-1">Total Quote Revenue</h6>
                     <h2 class="text-success fw-bold mb-0">₹{{ total_revenue|round(2) }}</h2>
-                    <small class="text-muted">Calculated per SqFt from sent quotes</small>
                 </div>
             </div>
         </div>
@@ -36,7 +46,6 @@
                 <div class="card-body">
                     <h6 class="text-muted text-uppercase fw-bold mb-1">Total Orders Processed</h6>
                     <h2 class="text-primary fw-bold mb-0">{{ total_orders }}</h2>
-                    <small class="text-muted">Lifetime completed checkouts</small>
                 </div>
             </div>
         </div>
@@ -45,7 +54,6 @@
                 <div class="card-body">
                     <h6 class="text-muted text-uppercase fw-bold mb-1">System Health</h6>
                     <h2 class="text-warning fw-bold mb-0">Active</h2>
-                    <small class="text-muted">Database sync operational</small>
                 </div>
             </div>
         </div>
@@ -55,30 +63,26 @@
         <div class="card-header bg-dark text-white font-weight-bold d-flex justify-content-between align-items-center">
             <h5 class="mb-0">📊 Recent Consultant Activity & Orders</h5>
         </div>
-        <div class="card-body p-0">
+        <div class="card-body p-0" style="max-height: 200px; overflow-y: auto;">
             <table class="table table-hover mb-0 align-middle">
                 <thead class="table-light">
                     <tr>
                         <th class="px-3">Order ID</th>
-                        <th>Date & Time</th>
                         <th>Customer</th>
-                        <th>Handled By (Consultant)</th>
+                        <th>Consultant</th>
                         <th>Items Quoted</th>
-                        <th>Total Value (Per SqFt)</th>
+                        <th>Total Value</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for o in orders %}
                     <tr>
                         <td class="fw-bold px-3">#ORD-{{ o.id }}</td>
-                        <td><small class="text-muted">{{ o.order_date }}</small></td>
                         <td class="fw-bold text-primary">{{ o.customer_name }}</td>
                         <td><span class="badge bg-secondary">{{ o.consultant_username }}</span></td>
                         <td><small>{{ o.items_summary }}</small></td>
                         <td class="text-success fw-bold">₹{{ o.total_amount|round(2) }}</td>
                     </tr>
-                    {% else %}
-                    <tr><td colspan="6" class="text-center text-muted py-4">No orders have been processed yet.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -90,12 +94,6 @@
             <h5 class="mb-0 text-primary">Manage Staff & Accounts</h5>
         </div>
         <div class="card-body">
-            {% with messages = get_flashed_messages() %}
-              {% if messages %}
-                <div class="alert alert-warning py-2">{{ messages[0] }}</div>
-              {% endif %}
-            {% endwith %}
-
             <form action="/add_user" method="POST" class="row g-3 mb-4">
                 <div class="col-md-3">
                     <input type="text" name="username" class="form-control" placeholder="New Username" required>
@@ -129,7 +127,6 @@
             <table class="table table-sm table-hover mb-0">
                 <thead class="table-light">
                     <tr>
-                        <th>ID</th>
                         <th>Username</th>
                         <th>Role</th>
                         <th>Assigned Category</th>
@@ -139,15 +136,12 @@
                 <tbody>
                     {% for u in users %}
                     <tr>
-                        <td>{{ u.id }}</td>
                         <td class="fw-bold">{{ u.username }}</td>
                         <td><span class="badge bg-secondary">{{ u.role }}</span></td>
                         <td>{{ u.assigned_category or 'All Access' }}</td>
                         <td>
                             {% if u.username != 'admin' %}
-                            <a href="/delete_user/{{ u.id }}" class="btn btn-sm btn-danger" onclick="return confirm('Delete this user account?')">Remove</a>
-                            {% else %}
-                            <span class="text-muted small">Master Cannot Be Deleted</span>
+                            <a href="/delete_user/{{ u.id }}" class="btn btn-sm btn-danger">Remove</a>
                             {% endif %}
                         </td>
                     </tr>
@@ -156,7 +150,7 @@
             </table>
         </div>
     </div>
-
+    {% endif %}
     <div class="card mb-4 shadow-sm">
         <div class="card-header bg-dark text-white font-weight-bold">Add / Manage Products</div>
         <div class="card-body">
@@ -165,6 +159,8 @@
                     <label class="form-label">Product Name</label>
                     <input type="text" name="name" class="form-control" required>
                 </div>
+                
+                {% if session['role'] == 'Super Admin' %}
                 <div class="col-md-4">
                     <label class="form-label">Category</label>
                     <select name="category" class="form-select">
@@ -175,31 +171,24 @@
                         <option>Quartzite</option>
                     </select>
                 </div>
+                {% else %}
+                <div class="col-md-4">
+                    <label class="form-label text-danger fw-bold">Locked Category Jurisdiction</label>
+                    <input type="text" class="form-control bg-light text-muted" value="{{ session['assigned_category'] }}" disabled>
+                </div>
+                {% endif %}
+
                 <div class="col-md-4">
                     <label class="form-label">Upload Product Picture</label>
                     <input type="file" name="image" class="form-control" accept="image/*">
                 </div>
-                <div class="col-md-2">
-                    <input type="number" step="0.1" name="l" class="form-control" placeholder="Length">
-                </div>
-                <div class="col-md-2">
-                    <input type="number" step="0.1" name="h" class="form-control" placeholder="Height">
-                </div>
-                <div class="col-md-2">
-                    <input type="number" step="0.1" name="w" class="form-control" placeholder="Width">
-                </div>
-                <div class="col-md-2">
-                    <input type="number" step="0.1" name="t" class="form-control" placeholder="Thickness">
-                </div>
-                <div class="col-md-4">
-                    <input type="number" step="0.01" name="price" class="form-control" placeholder="Price Per SqFt" required>
-                </div>
-                <div class="col-md-6">
-                    <input type="text" name="application" class="form-control" placeholder="Application (e.g. Flooring, Bathroom)">
-                </div>
-                <div class="col-md-6">
-                    <input type="text" name="finish" class="form-control" placeholder="Finish (e.g. Polished, Honed)">
-                </div>
+                <div class="col-md-2"><input type="number" step="0.1" name="l" class="form-control" placeholder="Length"></div>
+                <div class="col-md-2"><input type="number" step="0.1" name="h" class="form-control" placeholder="Height"></div>
+                <div class="col-md-2"><input type="number" step="0.1" name="w" class="form-control" placeholder="Width"></div>
+                <div class="col-md-2"><input type="number" step="0.1" name="t" class="form-control" placeholder="Thickness"></div>
+                <div class="col-md-4"><input type="number" step="0.01" name="price" class="form-control" placeholder="Price Per SqFt" required></div>
+                <div class="col-md-6"><input type="text" name="application" class="form-control" placeholder="Application (e.g. Flooring, Bathroom)"></div>
+                <div class="col-md-6"><input type="text" name="finish" class="form-control" placeholder="Finish (e.g. Polished, Honed)"></div>
                 <div class="col-12 text-end">
                     <button type="submit" class="btn btn-success px-5">Save & Auto-Sync</button>
                 </div>
@@ -207,67 +196,41 @@
         </div>
     </div>
 
-    <ul class="nav nav-tabs mb-3" id="inventoryTabs">
-        <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#pictureView">Picture Section</a></li>
-        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#listView">List Section</a></li>
-    </ul>
-
-    <div class="tab-content">
-        <div class="tab-pane fade show active" id="pictureView">
-            <div class="row">
-                {% for p in products %}
-                <div class="col-md-3 mb-4">
-                    <div class="card marble-card shadow-sm h-100">
-                        {% if p.image_path %}
-                        <img src="{{ url_for('static', filename='uploads/' + p.image_path) }}" class="card-img-top">
-                        {% else %}
-                        <div class="bg-secondary text-white text-center py-5">No Image</div>
-                        {% endif %}
-                        <div class="card-body">
-                            <h6 class="card-title">{{ p.name }}</h6>
-                            <p class="card-text small text-muted mb-1">{{ p.category }}</p>
-                            <p class="text-primary fw-bold mb-2">₹{{ p.price_per_sqft }}</p>
-                            <a href="/delete/{{ p.id }}" class="btn btn-sm btn-outline-danger w-100" onclick="return confirm('Delete this product?')">Delete</a>
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-
-        <div class="tab-pane fade" id="listView">
-            <div class="card shadow-sm">
-                <table class="table table-hover mb-0">
-                    <thead class="table-dark">
-                        <tr>
-                            <th>Name</th>
-                            <th>Size (LxHxWxT)</th>
-                            <th>Category</th>
-                            <th>Price/SqFt</th>
-                            <th>Finish</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for p in products %}
-                        <tr>
-                            <td>{{ p.name }}</td>
-                            <td>{{p.length}}x{{p.height}}x{{p.width}} ({{p.thickness}}mm)</td>
-                            <td>{{ p.category }}</td>
-                            <td>₹{{ p.price_per_sqft }}</td>
-                            <td>{{ p.finish }}</td>
-                            <td>
-                                <a href="/delete/{{ p.id }}" class="btn btn-sm btn-danger" onclick="return confirm('Delete this product?')">Delete</a>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+    <div class="card shadow-sm border-0 mb-5">
+        <div class="card-body">
+            <h5 class="card-title text-dark fw-bold mb-3">Inventory Log</h5>
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Photo</th>
+                        <th>Name</th>
+                        <th>Category</th>
+                        <th>Size</th>
+                        <th>Price/SqFt</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in products %}
+                    <tr>
+                        <td>
+                            {% if p.image_path %}
+                            <img src="{{ url_for('static', filename='uploads/' + p.image_path) }}" style="height: 40px; width: 40px; border-radius: 4px; object-fit: cover;">
+                            {% endif %}
+                        </td>
+                        <td class="fw-bold">{{ p.name }}</td>
+                        <td>{{ p.category }}</td>
+                        <td>{{ p.length }}x{{ p.height }}x{{ p.width }}</td>
+                        <td class="text-primary fw-bold">₹{{ p.price_per_sqft }}</td>
+                        <td><a href="/delete/{{ p.id }}" class="btn btn-sm btn-danger">Delete</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
-</div>
 
+</div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
