@@ -23,11 +23,15 @@
           {% endif %}
         {% endwith %}
 
-        <div class="card shadow-sm border-0 border-top border-success border-4 mb-4">
-            <div class="card-header bg-white font-weight-bold">
-                <h5 class="mb-0 text-success">📝 Register New Customer</h5>
-            </div>
-            <div class="card-body">
+        <div class="accordion mb-4 shadow-sm" id="registerAccordion">
+          <div class="accordion-item border-top border-success border-4">
+            <h2 class="accordion-header">
+              <button class="accordion-button collapsed font-weight-bold text-success" type="button" data-bs-toggle="collapse" data-bs-target="#collapseForm">
+                <h5 class="mb-0">📝 Register New Customer</h5>
+              </button>
+            </h2>
+            <div id="collapseForm" class="accordion-collapse collapse" data-bs-parent="#registerAccordion">
+              <div class="accordion-body">
                 <form action="/register_customer" method="POST" class="row g-3">
                     <div class="col-md-3">
                         <label class="form-label small text-muted">Customer Name</label>
@@ -44,13 +48,9 @@
                     <div class="col-md-3">
                         <label class="form-label small text-muted">Purpose</label>
                         <select name="purpose" class="form-select">
-                            <option>House</option>
-                            <option>Building</option>
-                            <option>Architect</option>
-                            <option>Other</option>
+                            <option>House</option><option>Building</option><option>Architect</option><option>Other</option>
                         </select>
                     </div>
-                    
                     <div class="col-md-3">
                         <label class="form-label small text-muted">Third-Party Ref Name</label>
                         <input type="text" name="ref_name" class="form-control" placeholder="Local Agent/Architect">
@@ -72,7 +72,6 @@
                         <label class="form-label small text-muted">Notes / Comments</label>
                         <input type="text" name="notes" class="form-control">
                     </div>
-
                     <div class="col-md-3">
                         <label class="form-label small text-muted">Birthday</label>
                         <input type="date" name="birthday" class="form-control">
@@ -85,9 +84,60 @@
                         <button type="submit" class="btn btn-success w-100 fw-bold">Register Customer</button>
                     </div>
                 </form>
+              </div>
             </div>
+          </div>
         </div>
 
+        {% if active_customer %}
+        <div class="card shadow border-0 mb-4 border-top border-warning border-4">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">🛒 {{ active_customer.name }}'s Wishlist & Cart</h5>
+                <span class="badge bg-warning text-dark fs-6 shadow-sm">
+                    Applied Tier: {{ active_customer.commission_rate }}
+                    <a href="/clear_customer" class="text-dark text-decoration-none ms-3 fw-bold border-start border-dark ps-2">✖ Close Session</a>
+                </span>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0 align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="px-3">Item</th>
+                            <th>Original Price</th>
+                            <th>Discounted Price (Per SqFt)</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for w in wishlist_items %}
+                        <tr>
+                            <td class="fw-bold px-3">{{ w.name }}</td>
+                            <td class="text-muted text-decoration-line-through">₹{{ w.price_per_sqft }}</td>
+                            <td class="text-success fw-bold fs-5">
+                                {% if 'Green' in active_customer.commission_rate %}
+                                    ₹{{ (w.price_per_sqft * 0.9)|round(2) }} 
+                                {% elif 'Red' in active_customer.commission_rate %}
+                                    ₹{{ (w.price_per_sqft * 0.95)|round(2) }}
+                                {% elif 'Yellow' in active_customer.commission_rate %}
+                                    ₹{{ (w.price_per_sqft * 0.8)|round(2) }}
+                                {% else %}
+                                    ₹{{ w.price_per_sqft }}
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="/remove_from_wishlist/{{ w.wishlist_id }}" class="btn btn-sm btn-outline-danger">Remove</a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center text-muted py-3">Wishlist is empty. Add products from the catalog below!</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% else %}
         <div class="card shadow-sm border-0 mb-4 border-top border-info border-4">
             <div class="card-header bg-white font-weight-bold">
                 <h5 class="mb-0 text-info">👥 My Registered Customers</h5>
@@ -107,22 +157,19 @@
                         {% for c in customers %}
                         <tr>
                             <td class="fw-bold px-3">{{ c.name }}</td>
-                            <td>{{ c.mobile }}<br><small class="text-muted">{{ c.email }}</small></td>
+                            <td>{{ c.mobile }}</td>
                             <td>{{ c.purpose }}</td>
                             <td><span class="badge bg-dark text-white">{{ c.commission_rate }}</span></td>
                             <td>
-                                <button class="btn btn-sm btn-primary px-3 shadow-sm">Start Order / Wishlist</button>
+                                <a href="/select_customer/{{ c.id }}" class="btn btn-sm btn-outline-primary px-3 shadow-sm">Start Order / Select</a>
                             </td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="5" class="text-center text-muted py-4">No customers registered yet. Fill the form above to start!</td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
         </div>
+        {% endif %}
 
         <div class="card shadow-sm border-0 mb-5">
             <div class="card-header bg-dark text-white">
@@ -134,7 +181,7 @@
                         <th class="px-3">Photo</th>
                         <th>Product Name</th>
                         <th>Dimensions (LxHxWxT)</th>
-                        <th>Price/SqFt</th>
+                        <th>Base Price</th>
                         <th>Finish & Application</th>
                         <th>Action</th>
                     </tr>
@@ -154,7 +201,11 @@
                         <td class="text-primary fw-bold">₹{{ p.price_per_sqft }}</td>
                         <td>{{ p.finish }}<br><small class="text-muted">{{ p.application }}</small></td>
                         <td>
-                            <a href="https://wa.me/?text=Internal Quote:%20{{p.name}}%20(%20{{ p.length }}x{{ p.height }}%20)%20at%20Rs.{{p.price_per_sqft}}" target="_blank" class="btn btn-sm btn-outline-success px-3">Send Quote</a>
+                            {% if active_customer %}
+                            <a href="/add_to_wishlist/{{ p.id }}" class="btn btn-sm btn-success px-3 shadow-sm">Add to Wishlist</a>
+                            {% else %}
+                            <a href="https://wa.me/?text=Internal Quote:%20{{p.name}}%20(%20{{ p.length }}x{{ p.height }}%20)%20at%20Rs.{{p.price_per_sqft}}" target="_blank" class="btn btn-sm btn-outline-secondary px-3">Send Quote</a>
+                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}
@@ -163,5 +214,6 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

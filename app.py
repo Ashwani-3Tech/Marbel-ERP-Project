@@ -21,39 +21,13 @@ def get_db_connection():
 
 def setup_database():
     conn = get_db_connection()
-    # 1. Products Table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS Products (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL, category TEXT,
-            length REAL, height REAL, width REAL, thickness REAL,
-            price_per_sqft REAL, application TEXT, finish TEXT,
-            description TEXT, image_path TEXT
-        )
-    ''')
-    # 2. Users Table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS Users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL, password TEXT NOT NULL,
-            role TEXT NOT NULL, assigned_category TEXT
-        )
-    ''')
-    # 3. NEW Customers Table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS Customers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL, mobile TEXT NOT NULL, email TEXT,
-            purpose TEXT, ref_name TEXT, ref_mobile TEXT,
-            commission_rate TEXT, birthday TEXT, anniversary TEXT,
-            notes TEXT, consultant_username TEXT
-        )
-    ''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS Products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, category TEXT, length REAL, height REAL, width REAL, thickness REAL, price_per_sqft REAL, application TEXT, finish TEXT, description TEXT, image_path TEXT)''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS Users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL, assigned_category TEXT)''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS Customers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, mobile TEXT NOT NULL, email TEXT, purpose TEXT, ref_name TEXT, ref_mobile TEXT, commission_rate TEXT, birthday TEXT, anniversary TEXT, notes TEXT, consultant_username TEXT)''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS Wishlist (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, product_id INTEGER NOT NULL, quantity INTEGER DEFAULT 1, purpose TEXT)''')
     
     admin = conn.execute('SELECT * FROM Users WHERE username = "admin"').fetchone()
-    if not admin:
-        conn.execute('INSERT INTO Users (username, password, role) VALUES (?, ?, ?)', 
-                     ('admin', 'admin123', 'Super Admin'))
+    if not admin: conn.execute('INSERT INTO Users (username, password, role) VALUES (?, ?, ?)', ('admin', 'admin123', 'Super Admin'))
     conn.commit()
     conn.close()
 
@@ -62,23 +36,14 @@ setup_database()
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        conn = get_db_connection()
-        user = conn.execute('SELECT * FROM Users WHERE username = ? AND password = ?', (username, password)).fetchone()
-        conn.close()
+        user = get_db_connection().execute('SELECT * FROM Users WHERE username = ? AND password = ?', (request.form['username'], request.form['password'])).fetchone()
         if user:
-            session['user_id'] = user['id']
-            session['role'] = user['role']
-            session['username'] = user['username']
-            session['assigned_category'] = user['assigned_category']
-            
+            session['user_id'], session['role'], session['username'], session['assigned_category'] = user['id'], user['role'], user['username'], user['assigned_category']
             if user['role'] == 'Super Admin': return redirect(url_for('index'))
             elif user['role'] == 'Consultant': return redirect(url_for('consultant_panel'))
             elif user['role'] == 'Customer': return redirect(url_for('customer_panel'))
             elif user['role'] == 'Assistant Admin': return redirect(url_for('index'))
-        else:
-            flash("Invalid credentials! Please try again.")
+        else: flash("Invalid credentials! Please try again.")
     return render_template('login.html')
 
 @app.route('/logout')
@@ -89,37 +54,27 @@ def logout():
 @app.route('/')
 def index():
     if 'user_id' not in session or session.get('role') != 'Super Admin': return redirect(url_for('login'))
-    search_query = request.args.get('search', '')
-    category_filter = request.args.get('category', '')
-    query = "SELECT * FROM Products WHERE 1=1"
-    params = []
+    search_query, category_filter = request.args.get('search', ''), request.args.get('category', '')
+    query, params = "SELECT * FROM Products WHERE 1=1", []
     if search_query:
         query += " AND (name LIKE ? OR application LIKE ? OR finish LIKE ?)"
         params.extend([f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"])
-    if category_filter:
-        query += " AND category = ?"
-        params.append(category_filter)
+    if category_filter: query += " AND category = ?"; params.append(category_filter)
         
     conn = get_db_connection()
-    products = conn.execute(query, params).fetchall()
-    users = conn.execute('SELECT * FROM Users').fetchall()
+    products, users = conn.execute(query, params).fetchall(), conn.execute('SELECT * FROM Users').fetchall()
     conn.close()
     return render_template('index.html', products=products, users=users)
 
 @app.route('/add_user', methods=['POST'])
 def add_user():
     if 'user_id' not in session or session.get('role') != 'Super Admin': return redirect(url_for('login'))
-    username = request.form['username']
-    password = request.form['password']
-    role = request.form['role']
-    category = request.form.get('assigned_category', '')
-    conn = get_db_connection()
     try:
-        conn.execute('INSERT INTO Users (username, password, role, assigned_category) VALUES (?, ?, ?, ?)', (username, password, role, category))
+        conn = get_db_connection()
+        conn.execute('INSERT INTO Users (username, password, role, assigned_category) VALUES (?, ?, ?, ?)', (request.form['username'], request.form['password'], request.form['role'], request.form.get('assigned_category', '')))
         conn.commit()
-    except sqlite3.IntegrityError:
-        flash("That Username already exists!")
-    conn.close()
+    except sqlite3.IntegrityError: flash("That Username already exists!")
+    finally: conn.close()
     return redirect(url_for('index'))
 
 @app.route('/delete_user/<int:id>')
@@ -134,84 +89,104 @@ def delete_user(id):
 @app.route('/add', methods=['POST'])
 def add_product():
     if 'user_id' not in session: return redirect(url_for('login'))
-    name = request.form['name']
-    category = request.form['category']
-    price = float(request.form['price'])
-    l, h, w, t = request.form['l'], request.form['h'], request.form['w'], request.form['t']
-    app_use = request.form['application']
-    finish = request.form['finish']
-    file = request.files['image']
-    filename = ""
-    if file:
-        filename = secure_filename(file.filename)
-        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+    f = request.files['image']
+    filename = secure_filename(f.filename) if f else ""
+    if f: f.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('''INSERT INTO Products (name, category, length, height, width, thickness, price_per_sqft, application, finish, image_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (name, category, l, h, w, t, price, app_use, finish, filename))
+    cursor.execute('INSERT INTO Products (name, category, length, height, width, thickness, price_per_sqft, application, finish, image_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+                   (request.form['name'], request.form['category'], float(request.form['price']), request.form['l'], request.form['h'], request.form['w'], request.form['t'], request.form['application'], request.form['finish'], filename))
     product_id = cursor.lastrowid
     conn.commit()
     conn.close()
-    qr_data = f"ID: {product_id} | Name: {name} | Cat: {category}"
-    qr_img = qrcode.make(qr_data).convert('RGB')
-    qr_w, qr_h = qr_img.size
-    sticker = Image.new('RGB', (qr_w, qr_h + 50), 'white')
+    
+    qr_img = qrcode.make(f"ID: {product_id} | Name: {request.form['name']} | Cat: {request.form['category']}").convert('RGB')
+    sticker = Image.new('RGB', (qr_img.size[0], qr_img.size[1] + 50), 'white')
     sticker.paste(qr_img, (0, 0))
     draw = ImageDraw.Draw(sticker)
-    draw.text((10, qr_h + 5), f"Name: {name}", fill="black")
-    draw.text((10, qr_h + 25), f"Lot No: {product_id}  |  {category}", fill="black")
+    draw.text((10, qr_img.size[1] + 5), f"Name: {request.form['name']}", fill="black")
+    draw.text((10, qr_img.size[1] + 25), f"Lot No: {product_id}", fill="black")
     sticker.save(f"{QR_FOLDER}/product_{product_id}.png")
     return redirect(url_for('index'))
 
-# --- NEW: REGISTER CUSTOMER ROUTE ---
 @app.route('/register_customer', methods=['POST'])
 def register_customer():
     if 'user_id' not in session or session.get('role') not in ['Super Admin', 'Consultant']: return redirect(url_for('login'))
-    
-    name, mobile, email = request.form['name'], request.form['mobile'], request.form['email']
-    purpose = request.form['purpose']
-    ref_name, ref_mobile = request.form['ref_name'], request.form['ref_mobile']
-    commission_rate = request.form['commission_rate']
-    birthday, anniversary = request.form['birthday'], request.form['anniversary']
-    notes = request.form['notes']
-    consultant_username = session['username']
-    
     conn = get_db_connection()
-    conn.execute('''
-        INSERT INTO Customers (name, mobile, email, purpose, ref_name, ref_mobile, commission_rate, birthday, anniversary, notes, consultant_username)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (name, mobile, email, purpose, ref_name, ref_mobile, commission_rate, birthday, anniversary, notes, consultant_username))
+    conn.execute('INSERT INTO Customers (name, mobile, email, purpose, ref_name, ref_mobile, commission_rate, birthday, anniversary, notes, consultant_username) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+                 (request.form['name'], request.form['mobile'], request.form['email'], request.form['purpose'], request.form['ref_name'], request.form['ref_mobile'], request.form['commission_rate'], request.form['birthday'], request.form['anniversary'], request.form['notes'], session['username']))
     conn.commit()
     conn.close()
-    
-    flash(f"Customer {name} Registered Successfully!")
+    flash(f"Customer {request.form['name']} Registered Successfully!")
     return redirect(url_for('consultant_panel'))
-# ------------------------------------
+
+@app.route('/select_customer/<int:customer_id>')
+def select_customer(customer_id):
+    if 'user_id' not in session or session.get('role') not in ['Super Admin', 'Consultant']: return redirect(url_for('login'))
+    session['active_customer_id'] = customer_id
+    return redirect(url_for('consultant_panel'))
+
+@app.route('/clear_customer')
+def clear_customer():
+    session.pop('active_customer_id', None)
+    return redirect(url_for('consultant_panel'))
+
+# --- NEW: ADD TO WISHLIST ROUTE ---
+@app.route('/add_to_wishlist/<int:product_id>')
+def add_to_wishlist(product_id):
+    if 'user_id' not in session or session.get('role') not in ['Super Admin', 'Consultant']: return redirect(url_for('login'))
+    if 'active_customer_id' not in session: return redirect(url_for('consultant_panel'))
+    
+    conn = get_db_connection()
+    conn.execute('INSERT INTO Wishlist (customer_id, product_id, quantity) VALUES (?, ?, 1)', 
+                 (session['active_customer_id'], product_id))
+    conn.commit()
+    conn.close()
+    flash("Product added to Customer Wishlist!")
+    return redirect(url_for('consultant_panel'))
+
+@app.route('/remove_from_wishlist/<int:wishlist_id>')
+def remove_from_wishlist(wishlist_id):
+    if 'user_id' not in session or session.get('role') not in ['Super Admin', 'Consultant']: return redirect(url_for('login'))
+    conn = get_db_connection()
+    conn.execute('DELETE FROM Wishlist WHERE id = ?', (wishlist_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('consultant_panel'))
+# ----------------------------------
 
 @app.route('/consultant')
 def consultant_panel():
     if 'user_id' not in session or session.get('role') not in ['Super Admin', 'Consultant']: return redirect(url_for('login'))
     conn = get_db_connection()
     products = conn.execute('SELECT * FROM Products').fetchall()
-    # Fetch customers registered by this specific consultant
     customers = conn.execute('SELECT * FROM Customers WHERE consultant_username = ?', (session['username'],)).fetchall()
+    
+    active_customer = None
+    wishlist_items = []
+    
+    if 'active_customer_id' in session:
+        active_customer = conn.execute('SELECT * FROM Customers WHERE id = ?', (session['active_customer_id'],)).fetchone()
+        # Fetch the items currently in this customer's cart
+        wishlist_items = conn.execute('''
+            SELECT w.id as wishlist_id, p.name, p.price_per_sqft, p.image_path, p.category 
+            FROM Wishlist w JOIN Products p ON w.product_id = p.id 
+            WHERE w.customer_id = ?
+        ''', (session['active_customer_id'],)).fetchall()
+        
     conn.close()
-    return render_template('consultant.html', products=products, customers=customers)
+    return render_template('consultant.html', products=products, customers=customers, active_customer=active_customer, wishlist_items=wishlist_items)
 
 @app.route('/customer')
 def customer_panel():
-    conn = get_db_connection()
-    products = conn.execute('SELECT * FROM Products').fetchall()
-    conn.close()
-    return render_template('customer.html', products=products)
+    return render_template('customer.html', products=get_db_connection().execute('SELECT * FROM Products').fetchall())
 
 @app.route('/delete/<int:id>')
 def delete_product(id):
     if 'user_id' not in session or session.get('role') != 'Super Admin': return redirect(url_for('login'))
     conn = get_db_connection()
     product = conn.execute('SELECT image_path FROM Products WHERE id = ?', (id,)).fetchone()
-    if product and product['image_path']:
-        image_path = os.path.join(app.config['UPLOAD_FOLDER'], product['image_path'])
-        if os.path.exists(image_path): os.remove(image_path)
+    if product and product['image_path'] and os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], product['image_path'])): os.remove(os.path.join(app.config['UPLOAD_FOLDER'], product['image_path']))
     conn.execute('DELETE FROM Products WHERE id = ?', (id,))
     conn.commit()
     conn.close()
@@ -220,9 +195,8 @@ def delete_product(id):
 @app.route('/bulk_update', methods=['POST'])
 def bulk_update():
     if 'user_id' not in session or session.get('role') != 'Super Admin': return redirect(url_for('login'))
-    percent = float(request.form['percent']) / 100
     conn = get_db_connection()
-    conn.execute('UPDATE Products SET price_per_sqft = price_per_sqft * (1 + ?)', (percent,))
+    conn.execute('UPDATE Products SET price_per_sqft = price_per_sqft * (1 + ?)', (float(request.form['percent']) / 100,))
     conn.commit()
     conn.close()
     return redirect(url_for('index'))
