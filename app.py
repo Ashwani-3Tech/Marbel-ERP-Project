@@ -3,6 +3,7 @@ import sqlite3
 import qrcode
 import os
 import urllib.parse
+from datetime import datetime
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageDraw
 
@@ -26,16 +27,17 @@ def setup_database():
     conn.execute('''CREATE TABLE IF NOT EXISTS Users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL, assigned_category TEXT)''')
     conn.execute('''CREATE TABLE IF NOT EXISTS Customers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, mobile TEXT NOT NULL, email TEXT, purpose TEXT, ref_name TEXT, ref_mobile TEXT, commission_rate TEXT, birthday TEXT, anniversary TEXT, notes TEXT, consultant_username TEXT)''')
     conn.execute('''CREATE TABLE IF NOT EXISTS Wishlist (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, product_id INTEGER NOT NULL, quantity INTEGER DEFAULT 1, purpose TEXT)''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS FollowUps (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, consultant_username TEXT NOT NULL, reminder_type TEXT NOT NULL, specific_date TEXT, status TEXT DEFAULT 'Pending')''')
     
-    # NEW: Follow-Ups Table
+    # NEW: Orders & Analytics Table
     conn.execute('''
-        CREATE TABLE IF NOT EXISTS FollowUps (
+        CREATE TABLE IF NOT EXISTS Orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            customer_id INTEGER NOT NULL,
+            customer_name TEXT NOT NULL,
             consultant_username TEXT NOT NULL,
-            reminder_type TEXT NOT NULL,
-            specific_date TEXT,
-            status TEXT DEFAULT 'Pending'
+            items_summary TEXT NOT NULL,
+            total_amount REAL NOT NULL,
+            order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
@@ -75,9 +77,16 @@ def index():
     if category_filter: query += " AND category = ?"; params.append(category_filter)
         
     conn = get_db_connection()
-    products, users = conn.execute(query, params).fetchall(), conn.execute('SELECT * FROM Users').fetchall()
+    products = conn.execute(query, params).fetchall()
+    users = conn.execute('SELECT * FROM Users').fetchall()
+    
+    # NEW: Fetch Analytics Data for Super Admin
+    orders = conn.execute('SELECT * FROM Orders ORDER BY order_date DESC').fetchall()
+    total_revenue = conn.execute('SELECT SUM(total_amount) FROM Orders').fetchone()[0] or 0
+    total_orders = len(orders)
     conn.close()
-    return render_template('index.html', products=products, users=users)
+    
+    return render_template('index.html', products=products, users=users, orders=orders, total_revenue=total_revenue, total_orders=total_orders)
 
 @app.route('/add_user', methods=['POST'])
 def add_user():
@@ -170,34 +179,42 @@ def checkout():
     conn = get_db_connection()
     customer = conn.execute('SELECT * FROM Customers WHERE id = ?', (session['active_customer_id'],)).fetchone()
     wishlist = conn.execute('SELECT p.name, p.price_per_sqft FROM Wishlist w JOIN Products p ON w.product_id = p.id WHERE w.customer_id = ?', (session['active_customer_id'],)).fetchall()
+    
     if not wishlist:
         conn.close()
         flash("Cannot checkout an empty cart!")
         return redirect(url_for('consultant_panel'))
+        
     msg = f"Hello {customer['name']},\n\nHere is your requested quotation from our Premium Marble Collection:\n\n"
+    items_summary = ""
+    total_amount = 0
+    
     for i, item in enumerate(wishlist, 1):
         price = item['price_per_sqft']
         if 'Green' in customer['commission_rate']: price = round(price * 0.9, 2)
         elif 'Red' in customer['commission_rate']: price = round(price * 0.95, 2)
         elif 'Yellow' in customer['commission_rate']: price = round(price * 0.8, 2)
+        
         msg += f"🔸 {item['name']}: ₹{price} / SqFt\n"
+        items_summary += f"{item['name']} (₹{price}), "
+        total_amount += price
+
     msg += "\nPlease let us know if you would like to proceed with this order!\n\nBest Regards,\nYour Consultant Team"
+    
+    # NEW: Save official receipt to Orders table before clearing cart!
+    conn.execute('INSERT INTO Orders (customer_name, consultant_username, items_summary, total_amount) VALUES (?, ?, ?, ?)',
+                 (customer['name'], session['username'], items_summary.strip(', '), total_amount))
+
     conn.execute('DELETE FROM Wishlist WHERE customer_id = ?', (session['active_customer_id'],))
     conn.commit()
     conn.close()
     return redirect(f"https://wa.me/91{customer['mobile']}?text={urllib.parse.quote(msg)}")
 
-# --- NEW: FOLLOW-UP ENGINE ---
 @app.route('/set_followup', methods=['POST'])
 def set_followup():
     if 'user_id' not in session or session.get('role') not in ['Super Admin', 'Consultant']: return redirect(url_for('login'))
-    customer_id = request.form['customer_id']
-    reminder_type = request.form['reminder_type']
-    specific_date = request.form.get('specific_date', '')
-    
     conn = get_db_connection()
-    conn.execute('INSERT INTO FollowUps (customer_id, consultant_username, reminder_type, specific_date) VALUES (?, ?, ?, ?)',
-                 (customer_id, session['username'], reminder_type, specific_date))
+    conn.execute('INSERT INTO FollowUps (customer_id, consultant_username, reminder_type, specific_date) VALUES (?, ?, ?, ?)', (request.form['customer_id'], session['username'], request.form['reminder_type'], request.form.get('specific_date', '')))
     conn.commit()
     conn.close()
     flash("Reminder set successfully!")
@@ -211,7 +228,6 @@ def complete_followup(f_id):
     conn.commit()
     conn.close()
     return redirect(url_for('consultant_panel'))
-# -----------------------------
 
 @app.route('/consultant')
 def consultant_panel():
@@ -219,13 +235,7 @@ def consultant_panel():
     conn = get_db_connection()
     products = conn.execute('SELECT * FROM Products').fetchall()
     customers = conn.execute('SELECT * FROM Customers WHERE consultant_username = ?', (session['username'],)).fetchall()
-    
-    # Fetch pending follow-ups for this consultant
-    followups = conn.execute('''
-        SELECT f.id, f.reminder_type, f.specific_date, c.name, c.mobile 
-        FROM FollowUps f JOIN Customers c ON f.customer_id = c.id 
-        WHERE f.consultant_username = ? AND f.status = 'Pending'
-    ''', (session['username'],)).fetchall()
+    followups = conn.execute("SELECT f.id, f.reminder_type, f.specific_date, c.name, c.mobile FROM FollowUps f JOIN Customers c ON f.customer_id = c.id WHERE f.consultant_username = ? AND f.status = 'Pending'", (session['username'],)).fetchall()
     
     active_customer = None
     wishlist_items = []

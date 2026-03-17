@@ -14,16 +14,80 @@
 
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1>👑 Super Admin Dashboard</h1>
+        <h1 class="fw-bold">👑 Super Admin Dashboard</h1>
         <div>
-            <a href="/gallery" class="btn btn-outline-dark me-2">Print QR Labels</a>
+            <span class="badge bg-dark fs-6 shadow-sm me-3">Logged in as: Master Admin</span>
             <a href="/logout" class="btn btn-danger">Logout</a>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0 border-start border-success border-5 h-100">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase fw-bold mb-1">Total Quote Revenue</h6>
+                    <h2 class="text-success fw-bold mb-0">₹{{ total_revenue|round(2) }}</h2>
+                    <small class="text-muted">Calculated per SqFt from sent quotes</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0 border-start border-primary border-5 h-100">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase fw-bold mb-1">Total Orders Processed</h6>
+                    <h2 class="text-primary fw-bold mb-0">{{ total_orders }}</h2>
+                    <small class="text-muted">Lifetime completed checkouts</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0 border-start border-warning border-5 h-100">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase fw-bold mb-1">System Health</h6>
+                    <h2 class="text-warning fw-bold mb-0">Active</h2>
+                    <small class="text-muted">Database sync operational</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4 shadow-sm border-0">
+        <div class="card-header bg-dark text-white font-weight-bold d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">📊 Recent Consultant Activity & Orders</h5>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th class="px-3">Order ID</th>
+                        <th>Date & Time</th>
+                        <th>Customer</th>
+                        <th>Handled By (Consultant)</th>
+                        <th>Items Quoted</th>
+                        <th>Total Value (Per SqFt)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for o in orders %}
+                    <tr>
+                        <td class="fw-bold px-3">#ORD-{{ o.id }}</td>
+                        <td><small class="text-muted">{{ o.order_date }}</small></td>
+                        <td class="fw-bold text-primary">{{ o.customer_name }}</td>
+                        <td><span class="badge bg-secondary">{{ o.consultant_username }}</span></td>
+                        <td><small>{{ o.items_summary }}</small></td>
+                        <td class="text-success fw-bold">₹{{ o.total_amount|round(2) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-center text-muted py-4">No orders have been processed yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 
     <div class="card mb-4 shadow-sm border-0 border-top border-primary border-4">
         <div class="card-header bg-white font-weight-bold">
-            <h5 class="mb-0 text-primary">Manage Staff & Customers</h5>
+            <h5 class="mb-0 text-primary">Manage Staff & Accounts</h5>
         </div>
         <div class="card-body">
             {% with messages = get_flashed_messages() %}
@@ -143,43 +207,6 @@
         </div>
     </div>
 
-    <div class="card mb-4 shadow-sm border-0 bg-white">
-        <div class="card-body">
-            <h5 class="card-title text-primary mb-3">🔍 Search & Filter Inventory</h5>
-            <form action="/" method="GET" class="row g-3">
-                <div class="col-md-5">
-                    <input type="text" name="search" class="form-control" placeholder="Search by Name, Finish, or Application...">
-                </div>
-                <div class="col-md-4">
-                    <select name="category" class="form-select">
-                        <option value="">All Categories</option>
-                        <option>Indian Marble & Granite</option>
-                        <option>Imported Marble</option>
-                        <option>Exotic Marble</option>
-                        <option>Onyx</option>
-                        <option>Quartzite</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <button type="submit" class="btn btn-primary w-100">Apply Filters</button>
-                </div>
-            </form>
-            <div class="mt-2 text-end">
-                <a href="/" class="btn btn-sm btn-outline-secondary">Clear Filters</a>
-            </div>
-        </div>
-    </div>
-
-    <div class="bulk-section shadow-sm">
-        <h5>Bulk Price Updates</h5>
-        <form action="/bulk_update" method="POST" class="d-flex align-items-center gap-3">
-            <button type="submit" name="percent" value="5" class="btn btn-warning">Increase 5%</button>
-            <button type="submit" name="percent" value="10" class="btn btn-warning">Increase 10%</button>
-            <button type="submit" name="percent" value="-5" class="btn btn-danger">Decrease 5%</button>
-            <span class="text-muted">| Applied to all inventory items automatically</span>
-        </form>
-    </div>
-
     <ul class="nav nav-tabs mb-3" id="inventoryTabs">
         <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#pictureView">Picture Section</a></li>
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#listView">List Section</a></li>
@@ -200,9 +227,7 @@
                             <h6 class="card-title">{{ p.name }}</h6>
                             <p class="card-text small text-muted mb-1">{{ p.category }}</p>
                             <p class="text-primary fw-bold mb-2">₹{{ p.price_per_sqft }}</p>
-                            <div class="d-flex justify-content-between">
-                                <a href="/delete/{{ p.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this?')">Delete</a>
-                            </div>
+                            <a href="/delete/{{ p.id }}" class="btn btn-sm btn-outline-danger w-100" onclick="return confirm('Delete this product?')">Delete</a>
                         </div>
                     </div>
                 </div>
@@ -232,7 +257,7 @@
                             <td>₹{{ p.price_per_sqft }}</td>
                             <td>{{ p.finish }}</td>
                             <td>
-                                <a href="/delete/{{ p.id }}" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure you want to delete this?')">Delete</a>
+                                <a href="/delete/{{ p.id }}" class="btn btn-sm btn-danger" onclick="return confirm('Delete this product?')">Delete</a>
                             </td>
                         </tr>
                         {% endfor %}
