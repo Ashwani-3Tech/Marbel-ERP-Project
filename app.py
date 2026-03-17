@@ -6,7 +6,7 @@ from werkzeug.utils import secure_filename
 from PIL import Image, ImageDraw
 
 app = Flask(__name__, static_folder='static')
-app.secret_key = "ashu_super_secret_master_key" # Required for logging in!
+app.secret_key = "ashu_super_secret_master_key"
 
 UPLOAD_FOLDER = 'static/uploads'
 QR_FOLDER = 'qr_codes'
@@ -21,7 +21,6 @@ def get_db_connection():
 
 def setup_database():
     conn = get_db_connection()
-    # 1. Products Table
     conn.execute('''
         CREATE TABLE IF NOT EXISTS Products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,30 +30,22 @@ def setup_database():
             description TEXT, image_path TEXT
         )
     ''')
-    
-    # 2. NEW Users Table for Super Admin & Consultants
     conn.execute('''
         CREATE TABLE IF NOT EXISTS Users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            role TEXT NOT NULL,
-            assigned_category TEXT
+            username TEXT UNIQUE NOT NULL, password TEXT NOT NULL,
+            role TEXT NOT NULL, assigned_category TEXT
         )
     ''')
-    
-    # Auto-create the Super Admin if it doesn't exist yet
     admin = conn.execute('SELECT * FROM Users WHERE username = "admin"').fetchone()
     if not admin:
         conn.execute('INSERT INTO Users (username, password, role) VALUES (?, ?, ?)', 
                      ('admin', 'admin123', 'Super Admin'))
-        
     conn.commit()
     conn.close()
 
 setup_database()
 
-# --- SECURITY: LOGIN & LOGOUT ROUTES ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -69,7 +60,19 @@ def login():
             session['user_id'] = user['id']
             session['role'] = user['role']
             session['username'] = user['username']
-            return redirect(url_for('index'))
+            session['assigned_category'] = user['assigned_category']
+            
+            # --- THE NEW TRAFFIC CONTROLLER ---
+            if user['role'] == 'Super Admin':
+                return redirect(url_for('index'))
+            elif user['role'] == 'Consultant':
+                return redirect(url_for('consultant_panel'))
+            elif user['role'] == 'Customer':
+                return redirect(url_for('customer_panel'))
+            elif user['role'] == 'Assistant Admin':
+                return redirect(url_for('index')) # We will restrict their view later!
+            # ----------------------------------
+            
         else:
             flash("Invalid credentials! Please try again.")
             
@@ -79,11 +82,9 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for('login'))
-# ---------------------------------------
 
 @app.route('/')
 def index():
-    # SECURITY LOCK: Kick user to login page if they are not logged in!
     if 'user_id' not in session or session.get('role') != 'Super Admin':
         return redirect(url_for('login'))
 
@@ -101,14 +102,43 @@ def index():
         
     conn = get_db_connection()
     products = conn.execute(query, params).fetchall()
+    users = conn.execute('SELECT * FROM Users').fetchall() # <-- FETCHES USERS FOR ADMIN!
     conn.close()
     
-    return render_template('index.html', products=products)
+    return render_template('index.html', products=products, users=users)
+
+# --- USER MANAGEMENT ROUTES ---
+@app.route('/add_user', methods=['POST'])
+def add_user():
+    if 'user_id' not in session or session.get('role') != 'Super Admin': return redirect(url_for('login'))
+    username = request.form['username']
+    password = request.form['password']
+    role = request.form['role']
+    category = request.form.get('assigned_category', '')
+
+    conn = get_db_connection()
+    try:
+        conn.execute('INSERT INTO Users (username, password, role, assigned_category) VALUES (?, ?, ?, ?)',
+                     (username, password, role, category))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        flash("That Username already exists!")
+    conn.close()
+    return redirect(url_for('index'))
+
+@app.route('/delete_user/<int:id>')
+def delete_user(id):
+    if 'user_id' not in session or session.get('role') != 'Super Admin': return redirect(url_for('login'))
+    conn = get_db_connection()
+    conn.execute('DELETE FROM Users WHERE id = ?', (id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('index'))
+# ------------------------------
 
 @app.route('/add', methods=['POST'])
 def add_product():
     if 'user_id' not in session: return redirect(url_for('login'))
-    
     name = request.form['name']
     category = request.form['category']
     price = float(request.form['price'])
@@ -128,28 +158,28 @@ def add_product():
         INSERT INTO Products (name, category, length, height, width, thickness, price_per_sqft, application, finish, image_path)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (name, category, l, h, w, t, price, app_use, finish, filename))
-    
     product_id = cursor.lastrowid
     conn.commit()
     conn.close()
 
     qr_data = f"ID: {product_id} | Name: {name} | Cat: {category}"
     qr_img = qrcode.make(qr_data).convert('RGB')
-    
     qr_w, qr_h = qr_img.size
     sticker = Image.new('RGB', (qr_w, qr_h + 50), 'white')
     sticker.paste(qr_img, (0, 0))
-    
     draw = ImageDraw.Draw(sticker)
     draw.text((10, qr_h + 5), f"Name: {name}", fill="black")
     draw.text((10, qr_h + 25), f"Lot No: {product_id}  |  {category}", fill="black")
-    
     sticker.save(f"{QR_FOLDER}/product_{product_id}.png")
 
     return redirect(url_for('index'))
 
 @app.route('/consultant')
 def consultant_panel():
+    # SECURITY LOCK: Only Consultants and Super Admins can enter!
+    if 'user_id' not in session or session.get('role') not in ['Super Admin', 'Consultant']:
+        return redirect(url_for('login'))
+        
     conn = get_db_connection()
     products = conn.execute('SELECT * FROM Products').fetchall()
     conn.close()
@@ -170,7 +200,6 @@ def delete_product(id):
     if product and product['image_path']:
         image_path = os.path.join(app.config['UPLOAD_FOLDER'], product['image_path'])
         if os.path.exists(image_path): os.remove(image_path)
-            
     conn.execute('DELETE FROM Products WHERE id = ?', (id,))
     conn.commit()
     conn.close()

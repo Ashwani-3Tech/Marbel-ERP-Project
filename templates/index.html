@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Marble ERP - Admin Panel</title>
+    <title>Marble ERP - Super Admin Panel</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         .marble-card img { height: 200px; object-fit: cover; }
@@ -14,12 +14,87 @@
 
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1>Inventory Management Panel</h1>
-        <a href="/gallery" class="btn btn-outline-dark">Print QR Labels</a>
+        <h1>👑 Super Admin Dashboard</h1>
+        <div>
+            <a href="/gallery" class="btn btn-outline-dark me-2">Print QR Labels</a>
+            <a href="/logout" class="btn btn-danger">Logout</a>
+        </div>
+    </div>
+
+    <div class="card mb-4 shadow-sm border-0 border-top border-primary border-4">
+        <div class="card-header bg-white font-weight-bold">
+            <h5 class="mb-0 text-primary">Manage Staff & Customers</h5>
+        </div>
+        <div class="card-body">
+            {% with messages = get_flashed_messages() %}
+              {% if messages %}
+                <div class="alert alert-warning py-2">{{ messages[0] }}</div>
+              {% endif %}
+            {% endwith %}
+
+            <form action="/add_user" method="POST" class="row g-3 mb-4">
+                <div class="col-md-3">
+                    <input type="text" name="username" class="form-control" placeholder="New Username" required>
+                </div>
+                <div class="col-md-3">
+                    <input type="password" name="password" class="form-control" placeholder="Password" required>
+                </div>
+                <div class="col-md-3">
+                    <select name="role" class="form-select" required>
+                        <option value="">Select Role...</option>
+                        <option value="Assistant Admin">Assistant Admin</option>
+                        <option value="Consultant">Consultant</option>
+                        <option value="Customer">Customer</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select name="assigned_category" class="form-select">
+                        <option value="">Assign Category (Admins Only)</option>
+                        <option>Indian Marble & Granite</option>
+                        <option>Imported Marble</option>
+                        <option>Exotic Marble</option>
+                        <option>Onyx</option>
+                        <option>Quartzite</option>
+                    </select>
+                </div>
+                <div class="col-12 text-end mt-2">
+                    <button type="submit" class="btn btn-primary px-4">Create Account</button>
+                </div>
+            </form>
+
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Assigned Category</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in users %}
+                    <tr>
+                        <td>{{ u.id }}</td>
+                        <td class="fw-bold">{{ u.username }}</td>
+                        <td><span class="badge bg-secondary">{{ u.role }}</span></td>
+                        <td>{{ u.assigned_category or 'All Access' }}</td>
+                        <td>
+                            {% if u.username != 'admin' %}
+                            <a href="/delete_user/{{ u.id }}" class="btn btn-sm btn-danger" onclick="return confirm('Delete this user account?')">Remove</a>
+                            {% else %}
+                            <span class="text-muted small">Master Cannot Be Deleted</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <div class="card mb-4 shadow-sm">
-        <div class="card-header bg-primary text-white font-weight-bold">Add / Manage Products</div>
+        <div class="card-header bg-dark text-white font-weight-bold">Add / Manage Products</div>
         <div class="card-body">
             <form action="/add" method="POST" enctype="multipart/form-data" class="row g-3">
                 <div class="col-md-4">
@@ -40,7 +115,6 @@
                     <label class="form-label">Upload Product Picture</label>
                     <input type="file" name="image" class="form-control" accept="image/*">
                 </div>
-                
                 <div class="col-md-2">
                     <input type="number" step="0.1" name="l" class="form-control" placeholder="Length">
                 </div>
@@ -56,14 +130,12 @@
                 <div class="col-md-4">
                     <input type="number" step="0.01" name="price" class="form-control" placeholder="Price Per SqFt" required>
                 </div>
-                
                 <div class="col-md-6">
                     <input type="text" name="application" class="form-control" placeholder="Application (e.g. Flooring, Bathroom)">
                 </div>
                 <div class="col-md-6">
                     <input type="text" name="finish" class="form-control" placeholder="Finish (e.g. Polished, Honed)">
                 </div>
-                
                 <div class="col-12 text-end">
                     <button type="submit" class="btn btn-success px-5">Save & Auto-Sync</button>
                 </div>
@@ -129,7 +201,6 @@
                             <p class="card-text small text-muted mb-1">{{ p.category }}</p>
                             <p class="text-primary fw-bold mb-2">₹{{ p.price_per_sqft }}</p>
                             <div class="d-flex justify-content-between">
-                                <a href="https://wa.me/?text=Marble:%20{{p.name}}" class="btn btn-sm btn-outline-success" target="_blank">WA</a>
                                 <a href="/delete/{{ p.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this?')">Delete</a>
                             </div>
                         </div>
@@ -161,7 +232,6 @@
                             <td>₹{{ p.price_per_sqft }}</td>
                             <td>{{ p.finish }}</td>
                             <td>
-                                <a href="https://wa.me/?text=Marble%20Quote:%20{{p.name}}%20at%20Rs.{{p.price_per_sqft}}" target="_blank" class="btn btn-sm btn-success">WhatsApp</a>
                                 <a href="/delete/{{ p.id }}" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure you want to delete this?')">Delete</a>
                             </td>
                         </tr>
