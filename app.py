@@ -1,14 +1,13 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, session
 import sqlite3
 import qrcode
 import os
 from werkzeug.utils import secure_filename
-from PIL import Image, ImageDraw  # We added these tools to draw the text!
+from PIL import Image, ImageDraw
 
 app = Flask(__name__, static_folder='static')
-app.secret_key = "ashu_secret_key"
+app.secret_key = "ashu_super_secret_master_key" # Required for logging in!
 
-# Configuration
 UPLOAD_FOLDER = 'static/uploads'
 QR_FOLDER = 'qr_codes'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -22,36 +21,80 @@ def get_db_connection():
 
 def setup_database():
     conn = get_db_connection()
+    # 1. Products Table
     conn.execute('''
         CREATE TABLE IF NOT EXISTS Products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            category TEXT,
+            name TEXT NOT NULL, category TEXT,
             length REAL, height REAL, width REAL, thickness REAL,
-            price_per_sqft REAL,
-            application TEXT,
-            finish TEXT,
-            description TEXT,
-            image_path TEXT
+            price_per_sqft REAL, application TEXT, finish TEXT,
+            description TEXT, image_path TEXT
         )
     ''')
+    
+    # 2. NEW Users Table for Super Admin & Consultants
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS Users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL,
+            assigned_category TEXT
+        )
+    ''')
+    
+    # Auto-create the Super Admin if it doesn't exist yet
+    admin = conn.execute('SELECT * FROM Users WHERE username = "admin"').fetchone()
+    if not admin:
+        conn.execute('INSERT INTO Users (username, password, role) VALUES (?, ?, ?)', 
+                     ('admin', 'admin123', 'Super Admin'))
+        
     conn.commit()
     conn.close()
 
 setup_database()
 
+# --- SECURITY: LOGIN & LOGOUT ROUTES ---
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        
+        conn = get_db_connection()
+        user = conn.execute('SELECT * FROM Users WHERE username = ? AND password = ?', (username, password)).fetchone()
+        conn.close()
+        
+        if user:
+            session['user_id'] = user['id']
+            session['role'] = user['role']
+            session['username'] = user['username']
+            return redirect(url_for('index'))
+        else:
+            flash("Invalid credentials! Please try again.")
+            
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+# ---------------------------------------
+
 @app.route('/')
 def index():
+    # SECURITY LOCK: Kick user to login page if they are not logged in!
+    if 'user_id' not in session or session.get('role') != 'Super Admin':
+        return redirect(url_for('login'))
+
     search_query = request.args.get('search', '')
     category_filter = request.args.get('category', '')
-    
     query = "SELECT * FROM Products WHERE 1=1"
     params = []
     
     if search_query:
         query += " AND (name LIKE ? OR application LIKE ? OR finish LIKE ?)"
         params.extend([f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"])
-        
     if category_filter:
         query += " AND category = ?"
         params.append(category_filter)
@@ -64,6 +107,8 @@ def index():
 
 @app.route('/add', methods=['POST'])
 def add_product():
+    if 'user_id' not in session: return redirect(url_for('login'))
+    
     name = request.form['name']
     category = request.form['category']
     price = float(request.form['price'])
@@ -88,35 +133,43 @@ def add_product():
     conn.commit()
     conn.close()
 
-    # SECTION 6: ADVANCED PHYSICAL STICKER QR GENERATION
     qr_data = f"ID: {product_id} | Name: {name} | Cat: {category}"
     qr_img = qrcode.make(qr_data).convert('RGB')
     
-    # Create a white canvas that is taller than the QR code
     qr_w, qr_h = qr_img.size
     sticker = Image.new('RGB', (qr_w, qr_h + 50), 'white')
-    
-    # Paste the QR code onto the top of the canvas
     sticker.paste(qr_img, (0, 0))
     
-    # Use the digital pen to write the text at the bottom
     draw = ImageDraw.Draw(sticker)
     draw.text((10, qr_h + 5), f"Name: {name}", fill="black")
     draw.text((10, qr_h + 25), f"Lot No: {product_id}  |  {category}", fill="black")
     
-    # Save the final sticker
     sticker.save(f"{QR_FOLDER}/product_{product_id}.png")
 
     return redirect(url_for('index'))
 
+@app.route('/consultant')
+def consultant_panel():
+    conn = get_db_connection()
+    products = conn.execute('SELECT * FROM Products').fetchall()
+    conn.close()
+    return render_template('consultant.html', products=products)
+
+@app.route('/customer')
+def customer_panel():
+    conn = get_db_connection()
+    products = conn.execute('SELECT * FROM Products').fetchall()
+    conn.close()
+    return render_template('customer.html', products=products)
+
 @app.route('/delete/<int:id>')
 def delete_product(id):
+    if 'user_id' not in session or session.get('role') != 'Super Admin': return redirect(url_for('login'))
     conn = get_db_connection()
     product = conn.execute('SELECT image_path FROM Products WHERE id = ?', (id,)).fetchone()
     if product and product['image_path']:
         image_path = os.path.join(app.config['UPLOAD_FOLDER'], product['image_path'])
-        if os.path.exists(image_path):
-            os.remove(image_path)
+        if os.path.exists(image_path): os.remove(image_path)
             
     conn.execute('DELETE FROM Products WHERE id = ?', (id,))
     conn.commit()
@@ -125,6 +178,7 @@ def delete_product(id):
 
 @app.route('/bulk_update', methods=['POST'])
 def bulk_update():
+    if 'user_id' not in session or session.get('role') != 'Super Admin': return redirect(url_for('login'))
     percent = float(request.form['percent']) / 100
     conn = get_db_connection()
     conn.execute('UPDATE Products SET price_per_sqft = price_per_sqft * (1 + ?)', (percent,))
