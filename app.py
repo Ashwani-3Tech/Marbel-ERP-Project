@@ -3,9 +3,10 @@ import sqlite3
 import qrcode
 import os
 from werkzeug.utils import secure_filename
+from PIL import Image, ImageDraw  # We added these tools to draw the text!
 
 app = Flask(__name__, static_folder='static')
-app.secret_key = "ashu_secret_key" # Needed for feedback messages
+app.secret_key = "ashu_secret_key"
 
 # Configuration
 UPLOAD_FOLDER = 'static/uploads'
@@ -19,7 +20,6 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-# UPDATED DATABASE SCHEMA (Matching Section 7)
 def setup_database():
     conn = get_db_connection()
     conn.execute('''
@@ -42,19 +42,16 @@ setup_database()
 
 @app.route('/')
 def index():
-    # Get the search words from the user
     search_query = request.args.get('search', '')
     category_filter = request.args.get('category', '')
     
     query = "SELECT * FROM Products WHERE 1=1"
     params = []
     
-    # Filter by Text (Name, Application, or Finish)
     if search_query:
         query += " AND (name LIKE ? OR application LIKE ? OR finish LIKE ?)"
         params.extend([f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"])
         
-    # Filter by Category Dropdown
     if category_filter:
         query += " AND category = ?"
         params.append(category_filter)
@@ -67,16 +64,13 @@ def index():
 
 @app.route('/add', methods=['POST'])
 def add_product():
-    # Get text data
     name = request.form['name']
     category = request.form['category']
     price = float(request.form['price'])
-    # Get measurements (Section 7)
     l, h, w, t = request.form['l'], request.form['h'], request.form['w'], request.form['t']
     app_use = request.form['application']
     finish = request.form['finish']
 
-    # Handle Image Upload (Section 1)
     file = request.files['image']
     filename = ""
     if file:
@@ -94,30 +88,49 @@ def add_product():
     conn.commit()
     conn.close()
 
-    # Generate Advanced QR (Section 6: Name and ID on QR)
+    # SECTION 6: ADVANCED PHYSICAL STICKER QR GENERATION
     qr_data = f"ID: {product_id} | Name: {name} | Cat: {category}"
-    img = qrcode.make(qr_data)
-    img.save(f"{QR_FOLDER}/product_{product_id}.png")
+    qr_img = qrcode.make(qr_data).convert('RGB')
+    
+    # Create a white canvas that is taller than the QR code
+    qr_w, qr_h = qr_img.size
+    sticker = Image.new('RGB', (qr_w, qr_h + 50), 'white')
+    
+    # Paste the QR code onto the top of the canvas
+    sticker.paste(qr_img, (0, 0))
+    
+    # Use the digital pen to write the text at the bottom
+    draw = ImageDraw.Draw(sticker)
+    draw.text((10, qr_h + 5), f"Name: {name}", fill="black")
+    draw.text((10, qr_h + 25), f"Lot No: {product_id}  |  {category}", fill="black")
+    
+    # Save the final sticker
+    sticker.save(f"{QR_FOLDER}/product_{product_id}.png")
 
     return redirect(url_for('index'))
 
-# BULK PRICE UPDATE (Section 2)
-@app.route('/bulk_update', methods=['POST'])
-def bulk_update():
-    percent = float(request.form['percent']) / 100
-    conn = get_db_connection()
-    # Increases or decreases ALL prices by the given percentage
-    conn.execute('UPDATE Products SET price_per_sqft = price_per_sqft * (1 + ?)', (percent,))
-    conn.commit()
-    conn.close()
-    flash(f"Prices updated by {int(percent*100)}%")
-    return redirect(url_for('index'))
 @app.route('/delete/<int:id>')
 def delete_product(id):
     conn = get_db_connection()
+    product = conn.execute('SELECT image_path FROM Products WHERE id = ?', (id,)).fetchone()
+    if product and product['image_path']:
+        image_path = os.path.join(app.config['UPLOAD_FOLDER'], product['image_path'])
+        if os.path.exists(image_path):
+            os.remove(image_path)
+            
     conn.execute('DELETE FROM Products WHERE id = ?', (id,))
     conn.commit()
     conn.close()
     return redirect(url_for('index'))
+
+@app.route('/bulk_update', methods=['POST'])
+def bulk_update():
+    percent = float(request.form['percent']) / 100
+    conn = get_db_connection()
+    conn.execute('UPDATE Products SET price_per_sqft = price_per_sqft * (1 + ?)', (percent,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('index'))
+
 if __name__ == '__main__':
     app.run(debug=True)
